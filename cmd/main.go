@@ -106,10 +106,13 @@ func main() {
 			frameCount++
 			if frameCount%30 == 0 {
 				log.Printf("已处理 %d 帧", frameCount)
-				log.Printf("检测结果: 检测到人=%v, 姿势=%v, 面部位置=%v",
+				log.Printf("检测结果: 检测到人=%v, 姿势=%v, 面部位置=%v, 坐姿距离=%v, 坐姿高度=%v, 侧视图姿势=%v",
 					result.HasPerson,
 					map[bool]string{true: "正常", false: "不正常"}[result.IsCorrect],
-					result.FacePosition)
+					result.FacePosition,
+					result.SitDistance,
+					result.SitHeight,
+					result.SidePosture)
 
 				// 计算帧率
 				now := time.Now()
@@ -121,7 +124,17 @@ func main() {
 
 			// 发送提醒
 			if !result.IsCorrect {
-				alertManager.SendAlert(result.FacePosition)
+				alertMessage := result.FacePosition
+				if result.SitDistance != "距离适中" {
+					alertMessage += "，" + result.SitDistance
+				}
+				if result.SitHeight != "坐姿高度正常" {
+					alertMessage += "，" + result.SitHeight
+				}
+				if result.SidePosture != "坐姿端正" {
+					alertMessage += "，" + result.SidePosture
+				}
+				alertManager.SendAlert(alertMessage)
 			}
 
 			// 控制帧率

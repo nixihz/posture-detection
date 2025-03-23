@@ -15,6 +15,9 @@ type PoseResult struct {
 	HasPerson    bool   // 是否检测到人
 	FacePosition string // 面部位置描述
 	ErrorMessage string // 错误信息
+	SitDistance  string // 坐姿距离描述
+	SitHeight    string // 坐姿高度描述
+	SidePosture  string // 侧视图姿势描述
 }
 
 // PoseDetector 姿态检测器
@@ -115,7 +118,11 @@ func (pd *PoseDetector) DetectPose(img gocv.Mat) (*PoseResult, error) {
 
 		// 获取图像中心
 		centerY := img.Rows() / 2
+		centerX := img.Cols() / 2
 		faceY := rects[0].Min.Y
+		faceX := rects[0].Min.X
+		faceHeight := rects[0].Dy()
+		faceWidth := rects[0].Dx()
 
 		// 计算面部位置
 		if faceY < centerY-50 {
@@ -129,33 +136,106 @@ func (pd *PoseDetector) DetectPose(img gocv.Mat) (*PoseResult, error) {
 		}
 
 		// 检查头部是否倾斜
-		faceWidth := rects[0].Dx()
-		faceHeight := rects[0].Dy()
 		if float64(faceWidth)/float64(faceHeight) < 0.7 || float64(faceWidth)/float64(faceHeight) > 1.3 {
 			result.FacePosition = "头部倾斜"
+			result.IsCorrect = false
+		}
+
+		// 检查坐姿距离
+		faceArea := float64(faceWidth * faceHeight)
+		imageArea := float64(img.Cols() * img.Rows())
+		faceRatio := faceArea / imageArea
+
+		if faceRatio > 0.15 {
+			result.SitDistance = "距离屏幕太近"
+			result.IsCorrect = false
+		} else if faceRatio < 0.05 {
+			result.SitDistance = "距离屏幕太远"
+			result.IsCorrect = false
+		} else {
+			result.SitDistance = "距离适中"
+		}
+
+		// 检查坐姿高度
+		heightRatio := float64(faceY) / float64(img.Rows())
+		if heightRatio < 0.3 {
+			result.SitHeight = "坐姿过高"
+			result.IsCorrect = false
+		} else if heightRatio > 0.7 {
+			result.SitHeight = "坐姿过低"
+			result.IsCorrect = false
+		} else {
+			result.SitHeight = "坐姿高度正常"
+		}
+
+		// 侧视图姿势检测
+		// 1. 检查前倾
+		faceCenterX := faceX + faceWidth/2
+		faceCenterY := faceY + faceHeight/2
+		faceToCenterX := faceCenterX - centerX
+		faceToCenterY := faceCenterY - centerY
+
+		// 计算头部相对于中心点的位置
+		// 如果头部明显前倾，faceToCenterX 会显著大于 faceToCenterY
+		if float64(faceToCenterX) > float64(faceToCenterY)*1.5 {
+			result.SidePosture = "身体前倾"
+			result.IsCorrect = false
+		} else if float64(faceToCenterX) < float64(faceToCenterY)*0.5 {
+			result.SidePosture = "身体后仰"
+			result.IsCorrect = false
+		} else {
+			result.SidePosture = "坐姿端正"
+		}
+
+		// 2. 检查驼背
+		// 通过人脸框的高度和位置关系判断
+		expectedHeight := float64(img.Rows()) * 0.15 // 期望的人脸高度
+		if float64(faceHeight) < expectedHeight*0.8 {
+			result.SidePosture = "可能驼背"
 			result.IsCorrect = false
 		}
 
 		// 绘制人脸检测框
 		gocv.Rectangle(&imgCopy, rects[0], color.RGBA{R: 0, G: 255, B: 0, A: 255}, 2)
 
+		// 绘制中心点和参考线
+		gocv.Circle(&imgCopy, image.Point{X: centerX, Y: centerY}, 5, color.RGBA{R: 255, G: 0, B: 0, A: 255}, -1)
+		gocv.Line(&imgCopy,
+			image.Point{X: centerX, Y: centerY},
+			image.Point{X: faceCenterX, Y: faceCenterY},
+			color.RGBA{R: 0, G: 255, B: 255, A: 255}, 1)
+
 		// 显示姿态信息
 		textColor := color.RGBA{R: 0, G: 255, B: 0, A: 255}
 		if !result.IsCorrect {
 			textColor = color.RGBA{R: 255, G: 0, B: 0, A: 255}
 		}
+
+		// 显示头部位置信息
 		gocv.PutText(&imgCopy, result.FacePosition, image.Point{X: 10, Y: 30},
+			gocv.FontHersheyPlain, 1.2, textColor, 2)
+
+		// 显示坐姿距离信息
+		gocv.PutText(&imgCopy, result.SitDistance, image.Point{X: 10, Y: 60},
+			gocv.FontHersheyPlain, 1.2, textColor, 2)
+
+		// 显示坐姿高度信息
+		gocv.PutText(&imgCopy, result.SitHeight, image.Point{X: 10, Y: 90},
+			gocv.FontHersheyPlain, 1.2, textColor, 2)
+
+		// 显示侧视图姿势信息
+		gocv.PutText(&imgCopy, result.SidePosture, image.Point{X: 10, Y: 120},
 			gocv.FontHersheyPlain, 1.2, textColor, 2)
 
 		// 显示人脸框信息
 		faceInfo := fmt.Sprintf("人脸位置: (%d,%d) 尺寸: %dx%d",
 			rects[0].Min.X, rects[0].Min.Y, faceWidth, faceHeight)
-		gocv.PutText(&imgCopy, faceInfo, image.Point{X: 10, Y: 60},
+		gocv.PutText(&imgCopy, faceInfo, image.Point{X: 10, Y: 150},
 			gocv.FontHersheyPlain, 1.2, color.RGBA{R: 255, G: 255, B: 0, A: 255}, 2)
 
 		// 显示检测参数
 		detInfo := fmt.Sprintf("检测参数: scale=1.05, neighbors=2, minSize=30x30")
-		gocv.PutText(&imgCopy, detInfo, image.Point{X: 10, Y: 90},
+		gocv.PutText(&imgCopy, detInfo, image.Point{X: 10, Y: 180},
 			gocv.FontHersheyPlain, 1.2, color.RGBA{R: 255, G: 255, B: 0, A: 255}, 2)
 	}
 

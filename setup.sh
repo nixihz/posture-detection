@@ -14,4 +14,4 @@ export CGO_CPPFLAGS="-I$OPENCV_PATH/include"
 export CGO_LDFLAGS="-L$OPENCV_PATH/lib -lopencv_core -lopencv_imgproc -lopencv_imgcodecs -lopencv_videoio -lopencv_objdetect"
 
 # 运行程序
-go run cmd/main.go 
+go run cmd/main.go
