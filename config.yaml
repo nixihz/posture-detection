@@ -1,0 +1,26 @@
+camera:
+  width: 640
+  height: 480
+  fps: 60
+  autofocus: true
+  autoexposure: true
+  brightness: 50
+  contrast: 50
+
+display:
+  show_window: false
+  window_width: 640
+  window_height: 480
+  window_title: "姿态检测"
+
+detector:
+  face_cascade: "haarcascade_frontalface_default.xml"
+  profile_cascade: "haarcascade_frontalface_default.xml"  # 暂时使用正面人脸检测器
+  min_face_size: 30
+  max_face_size: 200  # 调整最大人脸尺寸以适应新的分辨率
+  scale_factor: 1.05
+  min_neighbors: 2
+
+alert:
+  enabled: true
+  interval: 5  # 提醒间隔（秒） 

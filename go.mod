@@ -1,5 +1,8 @@
 module posture-detector
 
-go 1.23.6
+go 1.21
 
-require gocv.io/x/gocv v0.41.0
+require (
+	gocv.io/x/gocv v0.35.0
+	gopkg.in/yaml.v2 v2.4.0
+)

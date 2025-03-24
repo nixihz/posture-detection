@@ -1,0 +1,30 @@
+detector:
+  # 人脸检测参数
+  scale_factor: 1.1
+  min_neighbors: 5
+  min_face_size: 30
+  max_face_size: 300
+  
+  # 侧视图检测
+  enable_side_view: true
+  enable_hunchback_detection: true
+  hunchback_angle_threshold: 45.0  # 驼背角度阈值（度）
+  
+  # 坐姿检测参数
+  min_sit_distance: 50  # 最小坐姿距离（厘米）
+  max_sit_distance: 100 # 最大坐姿距离（厘米）
+  min_sit_height: 100   # 最小坐姿高度（厘米）
+  max_sit_height: 150   # 最大坐姿高度（厘米）
+
+camera:
+  width: 640
+  height: 480
+  fps: 30
+  autofocus: true
+  autoexposure: true
+  brightness: 128
+  contrast: 128
+
+notification:
+  enable: true
+  interval: 30  # 提醒间隔（秒） 

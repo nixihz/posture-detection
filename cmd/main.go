@@ -8,9 +8,10 @@ import (
 	"syscall"
 	"time"
 
-	"posture-detector/internal/alert"
 	"posture-detector/internal/camera"
+	"posture-detector/internal/config"
 	"posture-detector/internal/detector"
+	"posture-detector/internal/notify"
 )
 
 func checkCameraPermission() error {
@@ -50,9 +51,6 @@ func main() {
 	}
 	defer poseDetector.Close()
 
-	// 初始化提醒管理器
-	alertManager := alert.NewAlertManager()
-
 	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -65,6 +63,7 @@ func main() {
 	lastFrameTime := time.Now()
 	consecutiveErrors := 0
 	maxConsecutiveErrors := 5
+	cfg := config.GetConfig()
 
 	for {
 		select {
@@ -105,14 +104,21 @@ func main() {
 
 			frameCount++
 			if frameCount%30 == 0 {
-				log.Printf("已处理 %d 帧", frameCount)
-				log.Printf("检测结果: 检测到人=%v, 姿势=%v, 面部位置=%v, 坐姿距离=%v, 坐姿高度=%v, 侧视图姿势=%v",
-					result.HasPerson,
-					map[bool]string{true: "正常", false: "不正常"}[result.IsCorrect],
-					result.FacePosition,
-					result.SitDistance,
-					result.SitHeight,
-					result.SidePosture)
+				// 只在检测到人时输出详细信息
+				if result.HasPerson {
+					log.Printf("检测结果: 检测到人=%v, 姿势=%v, 面部位置=%v, 坐姿距离=%v, 坐姿高度=%v, 侧视图姿势=%v",
+						result.HasPerson,
+						map[bool]string{true: "正常", false: "不正常"}[result.IsCorrect],
+						result.FacePosition,
+						result.SitDistance,
+						result.SitHeight,
+						result.SidePosture)
+				} else {
+					// 未检测到人时，每60帧才输出一次
+					if frameCount%60 == 0 {
+						log.Printf("未检测到人脸，请调整位置")
+					}
+				}
 
 				// 计算帧率
 				now := time.Now()
@@ -123,7 +129,7 @@ func main() {
 			}
 
 			// 发送提醒
-			if !result.IsCorrect {
+			if !result.IsCorrect && cfg.Notification.Enable {
 				alertMessage := result.FacePosition
 				if result.SitDistance != "距离适中" {
 					alertMessage += "，" + result.SitDistance
@@ -134,11 +140,11 @@ func main() {
 				if result.SidePosture != "坐姿端正" {
 					alertMessage += "，" + result.SidePosture
 				}
-				alertManager.SendAlert(alertMessage)
+				notify.SendNotification(alertMessage)
 			}
 
 			// 控制帧率
-			time.Sleep(16 * time.Millisecond) // 约60FPS
+			time.Sleep(time.Duration(1000/cfg.Camera.FPS) * time.Millisecond)
 		}
 	}
 }

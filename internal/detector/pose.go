@@ -4,254 +4,250 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"log"
+	"math"
 	"path/filepath"
+
+	"posture-detector/internal/config"
+	"posture-detector/internal/notify"
 
 	"gocv.io/x/gocv"
 )
 
 // PoseResult 包含姿态检测的详细结果
 type PoseResult struct {
-	IsCorrect    bool   // 姿势是否正确
-	HasPerson    bool   // 是否检测到人
-	FacePosition string // 面部位置描述
-	ErrorMessage string // 错误信息
-	SitDistance  string // 坐姿距离描述
-	SitHeight    string // 坐姿高度描述
-	SidePosture  string // 侧视图姿势描述
+	IsCorrect       bool   // 姿势是否正确
+	HasPerson       bool   // 是否检测到人
+	FacePosition    string // 面部位置描述
+	ErrorMessage    string // 错误信息
+	SitDistance     string // 坐姿距离描述
+	SitHeight       string // 坐姿高度描述
+	SidePosture     string // 侧视图姿势描述
+	SideViewPosture string
 }
 
 // PoseDetector 姿态检测器
 type PoseDetector struct {
-	classifier gocv.CascadeClassifier
-	window     *gocv.Window
+	faceCascade    *gocv.CascadeClassifier
+	profileCascade *gocv.CascadeClassifier
+	window         *gocv.Window
+	config         *config.Config
+}
+
+type Config struct {
+	// ... existing code ...
+	SideView struct {
+		// ... existing code ...
+		Hunchback struct {
+			Enabled        bool    `yaml:"enabled"`
+			AngleThreshold float64 `yaml:"angle_threshold"` // 驼背角度阈值
+			MinConfidence  float64 `yaml:"min_confidence"`  // 最小置信度
+		} `yaml:"hunchback"`
+	} `yaml:"side_view"`
 }
 
 // NewPoseDetector 创建新的姿态检测器
 func NewPoseDetector() (*PoseDetector, error) {
-	classifier := gocv.NewCascadeClassifier()
-	classifierPath := filepath.Join("models", "haarcascade_frontalface_alt.xml")
-	if !classifier.Load(classifierPath) {
-		return nil, fmt.Errorf("无法加载分类器: %s", classifierPath)
+	log.Println("正在初始化姿态检测器...")
+	cfg := config.GetConfig()
+
+	// 加载人脸检测模型
+	faceCascade := gocv.NewCascadeClassifier()
+
+	faceModelPath := filepath.Join("models", "haarcascade_frontalface_default.xml")
+	if ok := faceCascade.Load(faceModelPath); !ok {
+		return nil, fmt.Errorf("加载人脸检测模型失败: %s", faceModelPath)
 	}
 
+	// 加载侧脸检测模型
+	profileCascade := gocv.NewCascadeClassifier()
+
+	profileModelPath := filepath.Join("models", "haarcascade_profileface.xml")
+	if ok := profileCascade.Load(profileModelPath); !ok {
+		return nil, fmt.Errorf("加载侧脸检测模型失败: %s", profileModelPath)
+	}
+
+	// 创建窗口
 	window := gocv.NewWindow("姿态检测")
-	window.ResizeWindow(800, 600)
+	window.ResizeWindow(640, 480)
+	window.MoveWindow(0, 0)
 
 	return &PoseDetector{
-		classifier: classifier,
-		window:     window,
+		faceCascade:    &faceCascade,
+		profileCascade: &profileCascade,
+		window:         window,
+		config:         cfg,
 	}, nil
 }
 
 // DetectPose 检测姿态
-func (pd *PoseDetector) DetectPose(img gocv.Mat) (*PoseResult, error) {
-	result := &PoseResult{
-		IsCorrect: true,
-		HasPerson: false,
-	}
+func (d *PoseDetector) DetectPose(img gocv.Mat) (*PoseResult, error) {
+	// 创建显示图像
+	displayImg := img.Clone()
+	defer displayImg.Close()
 
-	// 转换为灰度图像
+	// 调整图像大小
+	gocv.Resize(displayImg, &displayImg, image.Point{X: 640, Y: 480}, 0, 0, gocv.InterpolationLinear)
+
+	// 转换为灰度图
 	gray := gocv.NewMat()
 	defer gray.Close()
-	gocv.CvtColor(img, &gray, gocv.ColorBGRToGray)
+	gocv.CvtColor(displayImg, &gray, gocv.ColorBGRToGray)
 
-	// 调整图像大小以提高检测效果
-	resized := gocv.NewMat()
-	defer resized.Close()
-	gocv.Resize(gray, &resized, image.Point{}, 1.2, 1.2, gocv.InterpolationLinear)
+	// 直方图均衡化
+	gocv.EqualizeHist(gray, &gray)
 
-	// 调整图像对比度和亮度以提高检测率
-	gocv.EqualizeHist(resized, &resized)
-
-	// 在图像上绘制网格线以帮助调试
-	imgCopy := img.Clone()
-	defer imgCopy.Close()
-
-	// 绘制水平和垂直中心线
-	centerY := img.Rows() / 2
-	centerX := img.Cols() / 2
-	gocv.Line(&imgCopy,
-		image.Point{X: 0, Y: centerY},
-		image.Point{X: img.Cols(), Y: centerY},
-		color.RGBA{R: 255, G: 255, B: 0, A: 255}, 1)
-	gocv.Line(&imgCopy,
-		image.Point{X: centerX, Y: 0},
-		image.Point{X: centerX, Y: img.Rows()},
-		color.RGBA{R: 255, G: 255, B: 0, A: 255}, 1)
-
-	// 使用更宽松的检测参数
-	rects := pd.classifier.DetectMultiScaleWithParams(
-		resized,
-		1.05,                      // scaleFactor
-		2,                         // minNeighbors
-		0,                         // flags
-		image.Point{X: 30, Y: 30}, // minSize
-		image.Point{},             // maxSize
+	// 检测人脸
+	faces := d.faceCascade.DetectMultiScaleWithParams(
+		gray,
+		d.config.Detector.ScaleFactor,
+		d.config.Detector.MinNeighbors,
+		0,
+		image.Point{X: d.config.Detector.MinFaceSize, Y: d.config.Detector.MinFaceSize},
+		image.Point{X: d.config.Detector.MaxFaceSize, Y: d.config.Detector.MaxFaceSize},
 	)
 
-	// 调整检测到的矩形区域的大小以匹配原始图像
-	for i := range rects {
-		rects[i].Min.X = int(float64(rects[i].Min.X) / 1.2)
-		rects[i].Min.Y = int(float64(rects[i].Min.Y) / 1.2)
-		rects[i].Max.X = int(float64(rects[i].Max.X) / 1.2)
-		rects[i].Max.Y = int(float64(rects[i].Max.Y) / 1.2)
+	// 如果没有检测到正面人脸，尝试检测侧脸
+	if len(faces) == 0 {
+		faces = d.profileCascade.DetectMultiScaleWithParams(
+			gray,
+			d.config.Detector.ScaleFactor,
+			d.config.Detector.MinNeighbors,
+			0,
+			image.Point{X: d.config.Detector.MinFaceSize, Y: d.config.Detector.MinFaceSize},
+			image.Point{X: d.config.Detector.MaxFaceSize, Y: d.config.Detector.MaxFaceSize},
+		)
 	}
 
-	if len(rects) == 0 {
-		result.HasPerson = false
-		result.FacePosition = "未检测到人脸"
-		// 显示提示信息
-		gocv.PutText(&imgCopy, "未检测到人脸", image.Point{X: 10, Y: 30},
-			gocv.FontHersheyPlain, 1.2, color.RGBA{R: 255, G: 0, B: 0, A: 255}, 2)
+	result := &PoseResult{
+		HasPerson: len(faces) > 0,
+	}
 
-		// 显示图像尺寸信息
-		sizeInfo := fmt.Sprintf("图像尺寸: %dx%d", img.Cols(), img.Rows())
-		gocv.PutText(&imgCopy, sizeInfo, image.Point{X: 10, Y: 60},
-			gocv.FontHersheyPlain, 1.2, color.RGBA{R: 255, G: 255, B: 0, A: 255}, 2)
+	if result.HasPerson {
+		// 获取最大的人脸区域
+		maxFace := faces[0]
+		for _, face := range faces {
+			if face.Dx()*face.Dy() > maxFace.Dx()*maxFace.Dy() {
+				maxFace = face
+			}
+		}
 
-		// 显示检测参数
-		detInfo := fmt.Sprintf("检测参数: scale=1.05, neighbors=2, minSize=30x30")
-		gocv.PutText(&imgCopy, detInfo, image.Point{X: 10, Y: 90},
-			gocv.FontHersheyPlain, 1.2, color.RGBA{R: 255, G: 255, B: 0, A: 255}, 2)
-	} else {
-		result.HasPerson = true
+		// 计算人脸位置和姿态
+		faceCenterX := maxFace.Min.X + maxFace.Dx()/2
+		faceCenterY := maxFace.Min.Y + maxFace.Dy()/2
+		imgWidth := displayImg.Cols()
+		imgHeight := displayImg.Rows()
 
-		// 获取图像中心
-		centerY := img.Rows() / 2
-		centerX := img.Cols() / 2
-		faceY := rects[0].Min.Y
-		faceX := rects[0].Min.X
-		faceHeight := rects[0].Dy()
-		faceWidth := rects[0].Dx()
-
-		// 计算面部位置
-		if faceY < centerY-50 {
+		// 判断头部位置
+		if faceCenterY < imgHeight/3 {
 			result.FacePosition = "头部位置过高"
-			result.IsCorrect = false
-		} else if faceY > centerY+50 {
+		} else if faceCenterY > imgHeight*2/3 {
 			result.FacePosition = "头部位置过低"
-			result.IsCorrect = false
 		} else {
 			result.FacePosition = "头部位置正常"
 		}
 
-		// 检查头部是否倾斜
-		if float64(faceWidth)/float64(faceHeight) < 0.7 || float64(faceWidth)/float64(faceHeight) > 1.3 {
-			result.FacePosition = "头部倾斜"
-			result.IsCorrect = false
-		}
+		// 判断坐姿距离
+		faceSize := float64(maxFace.Dx() * maxFace.Dy())
+		imgSize := float64(imgWidth * imgHeight)
+		faceRatio := faceSize / imgSize
 
-		// 检查坐姿距离
-		faceArea := float64(faceWidth * faceHeight)
-		imageArea := float64(img.Cols() * img.Rows())
-		faceRatio := faceArea / imageArea
-
-		if faceRatio > 0.15 {
-			result.SitDistance = "距离屏幕太近"
-			result.IsCorrect = false
-		} else if faceRatio < 0.05 {
-			result.SitDistance = "距离屏幕太远"
-			result.IsCorrect = false
+		if faceRatio < 0.05 {
+			result.SitDistance = "距离过远"
+		} else if faceRatio > 0.15 {
+			result.SitDistance = "距离过近"
 		} else {
 			result.SitDistance = "距离适中"
 		}
 
-		// 检查坐姿高度
-		heightRatio := float64(faceY) / float64(img.Rows())
-		if heightRatio < 0.3 {
+		// 判断坐姿高度
+		if faceCenterY < imgHeight/4 {
 			result.SitHeight = "坐姿过高"
-			result.IsCorrect = false
-		} else if heightRatio > 0.7 {
+		} else if faceCenterY > imgHeight*3/4 {
 			result.SitHeight = "坐姿过低"
-			result.IsCorrect = false
 		} else {
 			result.SitHeight = "坐姿高度正常"
 		}
 
-		// 侧视图姿势检测
-		// 1. 检查前倾
-		faceCenterX := faceX + faceWidth/2
-		faceCenterY := faceY + faceHeight/2
-		faceToCenterX := faceCenterX - centerX
-		faceToCenterY := faceCenterY - centerY
-
-		// 计算头部相对于中心点的位置
-		// 如果头部明显前倾，faceToCenterX 会显著大于 faceToCenterY
-		if float64(faceToCenterX) > float64(faceToCenterY)*1.5 {
+		// 判断侧视图姿势
+		if faceCenterX < imgWidth/3 {
 			result.SidePosture = "身体前倾"
-			result.IsCorrect = false
-		} else if float64(faceToCenterX) < float64(faceToCenterY)*0.5 {
+		} else if faceCenterX > imgWidth*2/3 {
 			result.SidePosture = "身体后仰"
-			result.IsCorrect = false
 		} else {
 			result.SidePosture = "坐姿端正"
 		}
 
-		// 2. 检查驼背
-		// 通过人脸框的高度和位置关系判断
-		expectedHeight := float64(img.Rows()) * 0.15 // 期望的人脸高度
-		if float64(faceHeight) < expectedHeight*0.8 {
-			result.SidePosture = "可能驼背"
-			result.IsCorrect = false
-		}
+		// 综合判断姿势是否正确
+		result.IsCorrect = result.FacePosition == "头部位置正常" &&
+			result.SitDistance == "距离适中" &&
+			result.SitHeight == "坐姿高度正常" &&
+			result.SidePosture == "坐姿端正"
 
-		// 绘制人脸检测框
-		gocv.Rectangle(&imgCopy, rects[0], color.RGBA{R: 0, G: 255, B: 0, A: 255}, 2)
+		// 在图像上绘制检测结果
+		gocv.Rectangle(&displayImg, maxFace, color.RGBA{R: 0, G: 255, B: 0, A: 255}, 2)
 
-		// 绘制中心点和参考线
-		gocv.Circle(&imgCopy, image.Point{X: centerX, Y: centerY}, 5, color.RGBA{R: 255, G: 0, B: 0, A: 255}, -1)
-		gocv.Line(&imgCopy,
-			image.Point{X: centerX, Y: centerY},
-			image.Point{X: faceCenterX, Y: faceCenterY},
-			color.RGBA{R: 0, G: 255, B: 255, A: 255}, 1)
-
-		// 显示姿态信息
-		textColor := color.RGBA{R: 0, G: 255, B: 0, A: 255}
+		// 在左上角显示状态信息
+		statusColor := color.RGBA{R: 0, G: 255, B: 0, A: 255}
 		if !result.IsCorrect {
-			textColor = color.RGBA{R: 255, G: 0, B: 0, A: 255}
+			statusColor = color.RGBA{R: 255, G: 0, B: 0, A: 255}
 		}
 
-		// 显示头部位置信息
-		gocv.PutText(&imgCopy, result.FacePosition, image.Point{X: 10, Y: 30},
-			gocv.FontHersheyPlain, 1.2, textColor, 2)
-
-		// 显示坐姿距离信息
-		gocv.PutText(&imgCopy, result.SitDistance, image.Point{X: 10, Y: 60},
-			gocv.FontHersheyPlain, 1.2, textColor, 2)
-
-		// 显示坐姿高度信息
-		gocv.PutText(&imgCopy, result.SitHeight, image.Point{X: 10, Y: 90},
-			gocv.FontHersheyPlain, 1.2, textColor, 2)
-
-		// 显示侧视图姿势信息
-		gocv.PutText(&imgCopy, result.SidePosture, image.Point{X: 10, Y: 120},
-			gocv.FontHersheyPlain, 1.2, textColor, 2)
-
-		// 显示人脸框信息
-		faceInfo := fmt.Sprintf("人脸位置: (%d,%d) 尺寸: %dx%d",
-			rects[0].Min.X, rects[0].Min.Y, faceWidth, faceHeight)
-		gocv.PutText(&imgCopy, faceInfo, image.Point{X: 10, Y: 150},
-			gocv.FontHersheyPlain, 1.2, color.RGBA{R: 255, G: 255, B: 0, A: 255}, 2)
-
-		// 显示检测参数
-		detInfo := fmt.Sprintf("检测参数: scale=1.05, neighbors=2, minSize=30x30")
-		gocv.PutText(&imgCopy, detInfo, image.Point{X: 10, Y: 180},
-			gocv.FontHersheyPlain, 1.2, color.RGBA{R: 255, G: 255, B: 0, A: 255}, 2)
+		// 使用更小的字体和更紧凑的布局
+		gocv.PutText(&displayImg, result.FacePosition,
+			image.Point{X: 5, Y: 20}, gocv.FontHersheyPlain, 1.0, statusColor, 1)
+		gocv.PutText(&displayImg, result.SitDistance,
+			image.Point{X: 5, Y: 40}, gocv.FontHersheyPlain, 1.0, statusColor, 1)
+		gocv.PutText(&displayImg, result.SitHeight,
+			image.Point{X: 5, Y: 60}, gocv.FontHersheyPlain, 1.0, statusColor, 1)
+		gocv.PutText(&displayImg, result.SidePosture,
+			image.Point{X: 5, Y: 80}, gocv.FontHersheyPlain, 1.0, statusColor, 1)
 	}
 
-	// 显示处理后的图像
-	pd.window.IMShow(imgCopy)
-	pd.window.WaitKey(1)
+	// 检测侧视图姿势
+	if d.config.Detector.EnableSideView {
+		// 检测侧脸
+		profileFaces := d.detectProfileFace(img)
+		if len(profileFaces) > 0 {
+			// 获取最大的侧脸
+			maxFace := profileFaces[0]
+			for _, face := range profileFaces {
+				if face.Dx()*face.Dy() > maxFace.Dx()*maxFace.Dy() {
+					maxFace = face
+				}
+			}
+
+			// 检测驼背
+			if d.config.Detector.EnableHunchbackDetection {
+				isHunchback := d.detectHunchback(img, maxFace)
+				if isHunchback {
+					result.SideViewPosture = "存在驼背"
+					// 发送提醒
+					notify.SendNotification("检测到驼背，请保持正确的坐姿")
+				} else {
+					result.SideViewPosture = "坐姿端正"
+				}
+			}
+
+			// 绘制侧脸检测框
+			gocv.Rectangle(&displayImg, maxFace, color.RGBA{0, 255, 0, 255}, 2)
+		}
+	}
+
+	// 显示图像
+	if d.window != nil {
+		d.window.IMShow(displayImg)
+		d.window.WaitKey(1)
+	}
 
 	return result, nil
 }
 
-// Close 关闭检测器
-func (pd *PoseDetector) Close() {
-	if pd.window != nil {
-		pd.window.Close()
+// Close 释放资源
+func (d *PoseDetector) Close() {
+	if d.window != nil {
+		d.window.Close()
 	}
-	pd.classifier.Close()
 }
 
 // abs 返回整数的绝对值
@@ -260,4 +256,90 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// 检测驼背
+func (d *PoseDetector) detectHunchback(img gocv.Mat, faceRect image.Rectangle) bool {
+	// 获取人脸区域
+	faceROI := img.Region(faceRect)
+	defer faceROI.Close()
+
+	// 转换为灰度图
+	gray := gocv.NewMat()
+	defer gray.Close()
+	gocv.CvtColor(faceROI, &gray, gocv.ColorBGRToGray)
+
+	// 使用边缘检测
+	edges := gocv.NewMat()
+	defer edges.Close()
+	gocv.Canny(gray, &edges, 50, 150)
+
+	// 查找轮廓
+	contours := gocv.FindContours(edges, gocv.RetrievalExternal, gocv.ChainApproxSimple)
+	defer contours.Close()
+
+	// 分析轮廓
+	for i := 0; i < contours.Size(); i++ {
+		contour := contours.At(i)
+
+		// 计算轮廓的面积
+		area := gocv.ContourArea(contour)
+
+		// 过滤掉太小的区域
+		if area < 100 {
+			continue
+		}
+
+		// 计算轮廓的主方向
+		angle := d.calculateContourAngle(contour)
+
+		// 如果角度超过阈值，判定为驼背
+		if angle > d.config.Detector.HunchbackAngleThreshold {
+			return true
+		}
+	}
+
+	return false
+}
+
+// 计算轮廓的主方向角度
+func (d *PoseDetector) calculateContourAngle(contour gocv.PointVector) float64 {
+	if contour.Size() < 2 {
+		return 0
+	}
+
+	// 计算轮廓的主方向
+	var sumX, sumY float64
+	for i := 0; i < contour.Size(); i++ {
+		point := contour.At(i)
+		sumX += float64(point.X)
+		sumY += float64(point.Y)
+	}
+	centerX := sumX / float64(contour.Size())
+	centerY := sumY / float64(contour.Size())
+
+	// 计算与水平线的夹角
+	angle := math.Atan2(centerY, centerX) * 180 / math.Pi
+	if angle < 0 {
+		angle += 360
+	}
+
+	return angle
+}
+
+// 检测侧脸
+func (d *PoseDetector) detectProfileFace(img gocv.Mat) []image.Rectangle {
+	cfg := config.GetConfig()
+
+	// 检测侧脸
+	profileFaces := d.profileCascade.DetectMultiScaleWithParams(
+		img,
+		cfg.Detector.ScaleFactor,
+		cfg.Detector.MinNeighbors,
+		0,
+		image.Point{X: cfg.Detector.MinFaceSize, Y: cfg.Detector.MinFaceSize},
+		image.Point{X: cfg.Detector.MaxFaceSize, Y: cfg.Detector.MaxFaceSize},
+	)
+
+	return profileFaces
 }
