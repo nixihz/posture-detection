@@ -1,6 +1,6 @@
 # 姿态检测系统
 
-这是一个基于 OpenCV 的实时姿态检测系统，可以检测用户的坐姿状态并提供实时反馈。
+基于 OpenCV 和 Go 语言开发的实时姿态检测系统，用于监测和提醒用户保持正确的坐姿。
 
 ## 功能特点
 
@@ -16,21 +16,21 @@
 
 ## 系统要求
 
-- Go 1.21 或更高版本
-- OpenCV 4.x
+- Go 1.16 或更高版本
+- OpenCV 4.5.0 或更高版本
 - 摄像头设备
 
 ## 安装
 
 1. 克隆仓库：
 ```bash
-git clone [repository-url]
-cd posture-detector
+git clone https://github.com/nixihz/posture-detection.git
+cd posture-detection
 ```
 
 2. 安装依赖：
 ```bash
-go mod tidy
+go mod download
 ```
 
 3. 运行程序：
@@ -38,73 +38,36 @@ go mod tidy
 go run cmd/main.go
 ```
 
-## 配置说明
+## 配置
 
-配置文件 `config.yaml` 包含以下设置：
+系统使用 YAML 配置文件进行设置，配置文件位于 `config/config.yaml`。主要配置项包括：
 
-### 摄像头设置
-- `width`: 摄像头分辨率宽度
-- `height`: 摄像头分辨率高度
-- `fps`: 帧率
-- `autofocus`: 自动对焦
-- `autoexposure`: 自动曝光
-- `brightness`: 亮度
-- `contrast`: 对比度
+- 检测器参数（人脸检测、姿态检测等）
+- 摄像头设置（分辨率、帧率等）
+- 显示设置（窗口大小、标题等）
+- 通知设置（是否启用、提醒间隔等）
 
-### 显示设置
-- `show_window`: 是否显示窗口
-- `window_width`: 窗口宽度
-- `window_height`: 窗口高度
-- `window_title`: 窗口标题
+## 模型文件
 
-### 检测器设置
-- `face_cascade`: 正面人脸检测模型
-- `profile_cascade`: 侧脸检测模型
-- `min_face_size`: 最小人脸尺寸
-- `max_face_size`: 最大人脸尺寸
-- `scale_factor`: 检测缩放因子
-- `min_neighbors`: 最小邻居数
+系统使用以下模型文件进行姿态检测：
 
-### 提醒设置
-- `enabled`: 是否启用提醒
-- `interval`: 提醒间隔（秒）
+- `models/haarcascade_frontalface_default.xml`: 主要的人脸检测模型
+- `models/haarcascade_frontalface_alt.xml`: 备用人脸检测模型
+- `models/haarcascade_profileface.xml`: 侧视图人脸检测模型
 
-## 模型文件说明
+## 编程范式
 
-所有模型文件位于 `models/` 目录下，这些是 OpenCV 的 Haar Cascade 分类器模型：
+本项目采用 Vibe Coding 编程范式，这是一种注重代码可读性、可维护性和开发体验的编程方法。主要特点包括：
 
-### 1. haarcascade_frontalface_default.xml
-- 用途：正面人脸检测
-- 特点：
-  - 最常用的人脸检测模型
-  - 对正面人脸有较好的检测效果
-  - 检测速度快，资源占用低
-- 适用场景：
-  - 用户正对摄像头
-  - 光线条件良好
-  - 需要快速检测
+- 清晰的代码结构和模块化设计
+- 统一的命名规范和代码风格
+- 完善的错误处理和日志记录
+- 灵活的配置管理
+- 详细的文档和注释
 
-### 2. haarcascade_frontalface_alt.xml
-- 用途：正面人脸检测（替代模型）
-- 特点：
-  - 比默认模型更严格
-  - 误检率更低
-  - 检测速度稍慢
-- 适用场景：
-  - 需要更准确的人脸检测
-  - 环境光线复杂
-  - 对误检要求严格
+## 提示词系统
 
-### 3. haarcascade_profileface.xml
-- 用途：侧脸检测
-- 特点：
-  - 专门用于检测侧脸
-  - 对侧面角度的人脸有较好效果
-  - 检测速度适中
-- 适用场景：
-  - 用户侧对摄像头
-  - 需要检测侧面姿态
-  - 多角度人脸检测
+系统使用结构化的提示词来指导各个组件的运行和问题诊断。详细提示词文档请参考 [docs/prompt.txt](docs/prompt.txt)。
 
 ## 使用说明
 
@@ -129,4 +92,4 @@ go run cmd/main.go
 
 ## 许可证
 
-[添加许可证信息] 
+MIT License 
