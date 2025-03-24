@@ -30,6 +30,12 @@ type Config struct {
 		Brightness   int  `yaml:"brightness"`
 		Contrast     int  `yaml:"contrast"`
 	} `yaml:"camera"`
+	Display struct {
+		ShowWindow   bool   `yaml:"show_window"`
+		WindowWidth  int    `yaml:"window_width"`
+		WindowHeight int    `yaml:"window_height"`
+		WindowTitle  string `yaml:"window_title"`
+	} `yaml:"display"`
 	Notification struct {
 		Enable   bool `yaml:"enable"`
 		Interval int  `yaml:"interval"`

@@ -25,6 +25,12 @@ camera:
   brightness: 128
   contrast: 128
 
+display:
+  show_window: false
+  window_width: 640
+  window_height: 480
+  window_title: "姿态检测"
+
 notification:
   enable: true
   interval: 30  # 提醒间隔（秒） 

@@ -68,9 +68,12 @@ func NewPoseDetector() (*PoseDetector, error) {
 	}
 
 	// 创建窗口
-	window := gocv.NewWindow("姿态检测")
-	window.ResizeWindow(640, 480)
-	window.MoveWindow(0, 0)
+	var window *gocv.Window
+	if cfg.Display.ShowWindow {
+		window = gocv.NewWindow("姿态检测")
+		window.ResizeWindow(cfg.Display.WindowWidth, cfg.Display.WindowHeight)
+		window.MoveWindow(0, 0)
+	}
 
 	return &PoseDetector{
 		faceCascade:    &faceCascade,
@@ -235,7 +238,7 @@ func (d *PoseDetector) DetectPose(img gocv.Mat) (*PoseResult, error) {
 	}
 
 	// 显示图像
-	if d.window != nil {
+	if d.window != nil && d.config.Display.ShowWindow {
 		d.window.IMShow(displayImg)
 		d.window.WaitKey(1)
 	}
